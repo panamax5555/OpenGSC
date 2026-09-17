@@ -16,6 +16,23 @@ This document records the Railway deployment state and decisions for the `panama
 - Environment: `production`
 - Public service domain: `https://opengsc-production.up.railway.app`
 - Container port: `3000`
+- Region currently observed: Europe (`europe-west4-drams3a`)
+
+## Current verified status — 2026-09-17
+
+Vanilla OpenGSC is now running successfully on Railway.
+
+Verified from Railway runtime logs:
+
+- deployment status: `SUCCESS`
+- `/data` volume mounted successfully
+- SQLite database created at `file:/data/prod.db`
+- `prisma db push` completed successfully
+- Next.js `16.2.12` started and reported `Ready`
+- OpenGSC in-process schedulers started (`clarity`, `rank`, `aeo`, `alert`, `digest`, `sync`, `drops-watch`, `serpmon`, `warmup`)
+- external smoke test `GET /login` returned HTTP `200`
+
+This establishes a working Railway baseline before any SERPentine feature transplantation.
 
 ## Persistent storage
 
@@ -41,7 +58,28 @@ The Railway service currently uses these base variables:
 - `NEXTAUTH_URL=https://opengsc-production.up.railway.app`
 - `NEXTAUTH_SECRET=<secret stored in Railway>`
 
-Additional OAuth/API credentials for Google Search Console, Google Ads, etc. must be configured separately as features are enabled. Never commit secrets to this repository.
+Never commit secrets to this repository.
+
+## Google OAuth / first owner login
+
+OpenGSC's authentication code requires:
+
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+
+Google OAuth must allow:
+
+```text
+Authorized JavaScript origin:
+https://opengsc-production.up.railway.app
+
+Authorized redirect URI:
+https://opengsc-production.up.railway.app/api/auth/callback/google
+```
+
+The first successful Google login becomes the owner automatically. OpenGSC requests Google identity plus read-only Search Console and Analytics scopes and requests offline access for refresh-token support.
+
+Current blocker: the Railway service does not yet have the Google OAuth client ID/secret configured. Until those two secrets are supplied, the application itself can run but owner login/GSC connection cannot be completed.
 
 ## Dockerfile / Railway compatibility
 
@@ -125,14 +163,20 @@ Prisma 7.9.1 rejected the obsolete option.
 
 Resolution: remove `--skip-generate` from `docker-entrypoint.sh` and retain `npx prisma db push`.
 
+### 3. Successful baseline deployment
+
+After the two compatibility fixes above, deployment `96c08a5c-e804-4cbb-a3f7-9093b874cf0f` reached `SUCCESS`. SQLite schema initialization and Next.js startup completed cleanly, and `/login` returned HTTP 200.
+
 ## Current migration strategy
 
 The intended sequence is:
 
-1. Run OpenGSC on Railway as close to upstream as possible.
-2. Verify application startup, authentication, SQLite persistence and GSC connectivity.
-3. Only after the vanilla deployment is stable, transplant the useful SERPentine decision-engine components.
-4. Keep the original SERPentine project intact until functional parity and data migration are verified.
+1. Run OpenGSC on Railway as close to upstream as possible. **Done.**
+2. Verify application startup and SQLite persistence. **Done.**
+3. Configure Google OAuth and complete the first owner login/GSC connectivity. **Next.**
+4. Validate an actual GSC property/sync before modifying application behavior.
+5. Only after the vanilla deployment is stable, transplant the useful SERPentine decision-engine components.
+6. Keep the original SERPentine project intact until functional parity and data migration are verified.
 
 Potential SERPentine components to integrate later:
 
