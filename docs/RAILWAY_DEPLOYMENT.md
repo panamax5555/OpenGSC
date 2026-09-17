@@ -57,6 +57,30 @@ For the Railway fork, that `VOLUME` instruction was removed. The Railway volume 
 
 The rest of the upstream Docker flow is intentionally kept as close to upstream as possible.
 
+## Prisma startup compatibility
+
+After the Dockerfile validation issue was fixed, the Docker image built successfully but the container crashed during startup.
+
+The upstream `docker-entrypoint.sh` ran:
+
+```sh
+npx prisma db push --skip-generate
+```
+
+With Prisma `7.9.1`, `prisma db push` no longer accepts `--skip-generate`, so Railway repeatedly exited with:
+
+```text
+! unknown or unexpected option: --skip-generate
+```
+
+The Railway fork now runs:
+
+```sh
+npx prisma db push
+```
+
+The Prisma client is already generated during the Docker build (`npm ci` / `npm run build`), so removing the obsolete flag is sufficient and keeps schema application idempotent at container startup.
+
 ## Important Railway deployment behavior
 
 Railway's normal **Redeploy** action rebuilds the commit already associated with the existing deployment. It does not necessarily fetch the latest GitHub `main` commit.
@@ -69,9 +93,11 @@ Ctrl/Cmd + K -> Deploy Latest Commit
 
 This ensures the newest commit from the connected GitHub branch is used.
 
-## Deployment history / initial issue
+## Deployment history / initial issues
 
-Initial Railway deployments failed before the actual Docker build with a Dockerfile validation error.
+### 1. Dockerfile validation failure
+
+Initial Railway deployments failed before the actual Docker build.
 
 Root cause:
 
@@ -84,6 +110,20 @@ Resolution:
 1. Create Railway persistent volume mounted at `/data`.
 2. Remove the Dockerfile `VOLUME ["/data"]` instruction in this fork.
 3. Deploy the latest GitHub commit rather than redeploying the previous Railway snapshot.
+
+### 2. Container crash after successful image build
+
+The subsequent deployment completed the Next.js/Prisma Docker build successfully, mounted `/data`, then crashed before starting Next.js.
+
+Root cause:
+
+```text
+prisma db push --skip-generate
+```
+
+Prisma 7.9.1 rejected the obsolete option.
+
+Resolution: remove `--skip-generate` from `docker-entrypoint.sh` and retain `npx prisma db push`.
 
 ## Current migration strategy
 
