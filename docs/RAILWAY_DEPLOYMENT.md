@@ -20,9 +20,9 @@ This document records the Railway deployment state and decisions for the `panama
 
 ## Current verified status — 2026-09-17
 
-Vanilla OpenGSC is now running successfully on Railway.
+OpenGSC is running successfully on Railway and Google OAuth is working.
 
-Verified from Railway runtime logs:
+Verified from Railway runtime/HTTP logs and the owner login:
 
 - deployment status: `SUCCESS`
 - `/data` volume mounted successfully
@@ -31,8 +31,11 @@ Verified from Railway runtime logs:
 - Next.js `16.2.12` started and reported `Ready`
 - OpenGSC in-process schedulers started (`clarity`, `rank`, `aeo`, `alert`, `digest`, `sync`, `drops-watch`, `serpmon`, `warmup`)
 - external smoke test `GET /login` returned HTTP `200`
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are configured in Railway
+- Google OAuth owner login completed successfully
+- authenticated dashboard/API routes return HTTP `200`
 
-This establishes a working Railway baseline before any SERPentine feature transplantation.
+This establishes a working Railway/authentication baseline before any SERPentine feature transplantation.
 
 ## Persistent storage
 
@@ -57,17 +60,16 @@ The Railway service currently uses these base variables:
 - `PORT=3000`
 - `NEXTAUTH_URL=https://opengsc-production.up.railway.app`
 - `NEXTAUTH_SECRET=<secret stored in Railway>`
+- `GOOGLE_CLIENT_ID=<secret stored in Railway>`
+- `GOOGLE_CLIENT_SECRET=<secret stored in Railway>`
 
-Never commit secrets to this repository.
+Never commit secret values to this repository.
 
 ## Google OAuth / first owner login
 
-OpenGSC's authentication code requires:
+Google OAuth is configured and the first owner login has completed successfully.
 
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-
-Google OAuth must allow:
+Google OAuth configuration:
 
 ```text
 Authorized JavaScript origin:
@@ -79,7 +81,31 @@ https://opengsc-production.up.railway.app/api/auth/callback/google
 
 The first successful Google login becomes the owner automatically. OpenGSC requests Google identity plus read-only Search Console and Analytics scopes and requests offline access for refresh-token support.
 
-Current blocker: the Railway service does not yet have the Google OAuth client ID/secret configured. Until those two secrets are supplied, the application itself can run but owner login/GSC connection cannot be completed.
+After OAuth login, a Google-only owner is offered the option to create a local password. This does not replace Google OAuth; it creates a second login method.
+
+## Owner password onboarding
+
+After the first successful Google login, the password suggestion modal appeared correctly, but `Save and continue` appeared broken when the entered password was shorter than 12 characters.
+
+Root cause in `src/components/PasswordChangeGate.tsx`:
+
+```tsx
+disabled={busy || form.newPassword.length < 12}
+```
+
+The browser therefore never submitted the form for a short password. Railway HTTP logs confirmed that no `POST /api/team/password` reached the server during the failed attempt.
+
+The backend was verified as correct: a Google-only owner with no existing `passwordHash` may create the first password without supplying a current password, because the authenticated session already proves the owner's identity. The server-side password policy remains authoritative and requires at least 12 characters.
+
+Fix committed in `54d006f3b91cf29ea00d0f6185310ece6c08c0e7`:
+
+- keep the submit button clickable unless a request is already in progress
+- validate the minimum length in the submit handler
+- show the existing localized `password_too_short` message instead of silently disabling the button
+- reuse `PASSWORD_MIN_LENGTH` from the shared password-policy module
+- leave the 12-character security rule unchanged
+
+The fix still needs to be verified in the deployed application after Railway builds the latest commit.
 
 ## Dockerfile / Railway compatibility
 
@@ -123,7 +149,7 @@ The Prisma client is already generated during the Docker build (`npm ci` / `npm 
 
 Railway's normal **Redeploy** action rebuilds the commit already associated with the existing deployment. It does not necessarily fetch the latest GitHub `main` commit.
 
-After committing a hosting fix to GitHub, use Railway's command palette:
+After committing a hosting fix to GitHub, use Railway's command palette if an automatic GitHub deployment is not triggered:
 
 ```text
 Ctrl/Cmd + K -> Deploy Latest Commit
@@ -167,16 +193,25 @@ Resolution: remove `--skip-generate` from `docker-entrypoint.sh` and retain `npx
 
 After the two compatibility fixes above, deployment `96c08a5c-e804-4cbb-a3f7-9093b874cf0f` reached `SUCCESS`. SQLite schema initialization and Next.js startup completed cleanly, and `/login` returned HTTP 200.
 
+### 4. Google OAuth and owner login
+
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` were added to Railway and deployed successfully. Google OAuth completed and the first account became the OpenGSC owner. Authenticated OpenGSC routes subsequently returned HTTP 200.
+
+### 5. Password onboarding UX issue
+
+The first owner password prompt silently disabled its submit button for passwords shorter than 12 characters. The backend and password policy were correct; the UX failed to explain why submission was blocked. Commit `54d006f3b91cf29ea00d0f6185310ece6c08c0e7` changes the client to surface the validation error explicitly.
+
 ## Current migration strategy
 
 The intended sequence is:
 
 1. Run OpenGSC on Railway as close to upstream as possible. **Done.**
 2. Verify application startup and SQLite persistence. **Done.**
-3. Configure Google OAuth and complete the first owner login/GSC connectivity. **Next.**
-4. Validate an actual GSC property/sync before modifying application behavior.
-5. Only after the vanilla deployment is stable, transplant the useful SERPentine decision-engine components.
-6. Keep the original SERPentine project intact until functional parity and data migration are verified.
+3. Configure Google OAuth and complete the first owner login. **Done.**
+4. Verify the local owner-password onboarding fix after deployment. **Next.**
+5. Validate an actual GSC property and data sync.
+6. Only after the vanilla deployment is stable, transplant the useful SERPentine decision-engine components.
+7. Keep the original SERPentine project intact until functional parity and data migration are verified.
 
 Potential SERPentine components to integrate later:
 
