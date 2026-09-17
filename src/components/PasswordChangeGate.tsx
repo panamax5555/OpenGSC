@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Check, Copy, KeyRound, Loader2, X } from "lucide-react";
 import { useLanguage } from "@/lib/i18n/LanguageProvider";
+import { PASSWORD_MIN_LENGTH } from "@/lib/team/roles";
 
 const DISMISS_KEY = "opengsc.passwordNoticeDismissed";
 
@@ -54,6 +55,7 @@ export default function PasswordChangeGate() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (form.newPassword.length < PASSWORD_MIN_LENGTH) { setError("password_too_short"); return; }
     if (form.newPassword !== form.confirm) { setError("password_mismatch"); return; }
     setBusy(true); setError("");
     try {
@@ -89,16 +91,16 @@ export default function PasswordChangeGate() {
       {forced && <input className="tool-input" type="password" required autoComplete="current-password" placeholder={t("passwordChangeCurrent" as any)}
         value={form.currentPassword} onChange={e => setForm(f => ({ ...f, currentPassword: e.target.value }))} />}
       <input className="tool-input" type="password" required autoComplete="new-password" placeholder={t("passwordChangeNew" as any)}
-        value={form.newPassword} onChange={e => setForm(f => ({ ...f, newPassword: e.target.value }))} />
+        value={form.newPassword} onChange={e => { setError(""); setForm(f => ({ ...f, newPassword: e.target.value })); }} />
       <input className="tool-input" type="password" required autoComplete="new-password" placeholder={t("joinConfirm" as any)}
-        value={form.confirm} onChange={e => setForm(f => ({ ...f, confirm: e.target.value }))} />
+        value={form.confirm} onChange={e => { setError(""); setForm(f => ({ ...f, confirm: e.target.value })); }} />
 
       {error && <span style={{ fontSize: 12, color: "var(--color-accent-red)" }}>
         {t(`teamError_${error}` as any) !== `teamError_${error}` ? t(`teamError_${error}` as any) : t("passwordChangeFailed" as any)}
       </span>}
 
-      <button type="submit" disabled={busy || form.newPassword.length < 12}
-        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "10px 14px", borderRadius: 9, border: 0, background: "var(--color-accent-blue)", color: "#fff", fontSize: 14, fontWeight: 650, cursor: "pointer" }}>
+      <button type="submit" disabled={busy}
+        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "10px 14px", borderRadius: 9, border: 0, background: "var(--color-accent-blue)", color: "#fff", fontSize: 14, fontWeight: 650, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.75 : 1 }}>
         {busy ? <Loader2 className="spin" size={15} /> : null} {t("passwordChangeSubmit" as any)}
       </button>
 
