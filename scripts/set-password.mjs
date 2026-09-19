@@ -14,6 +14,7 @@ import { randomBytes } from "node:crypto";
 const require = createRequire(import.meta.url);
 const bcrypt = require("bcryptjs");
 const { PrismaClient } = require("../src/generated/prisma/index.js");
+const { PrismaBetterSqlite3 } = require("@prisma/adapter-better-sqlite3");
 
 function arg(name) {
   const hit = process.argv.find(value => value === `--${name}` || value.startsWith(`--${name}=`));
@@ -21,13 +22,23 @@ function arg(name) {
   return hit.includes("=") ? hit.slice(hit.indexOf("=") + 1) : process.argv[process.argv.indexOf(hit) + 1] ?? null;
 }
 
-const prisma = new PrismaClient();
+const rawUrl = process.env.DATABASE_URL || "file:/data/prod.db";
+if (!rawUrl.startsWith("file:")) {
+  console.error("set-password currently supports the SQLite deployment only.");
+  process.exit(1);
+}
+const adapter = new PrismaBetterSqlite3({
+  url: rawUrl.replace(/^file:/, ""),
+  timeout: 15_000,
+});
+const prisma = new PrismaClient({ adapter });
+
 try {
   const email = String(arg("email") ?? "").trim().toLowerCase();
   if (!email) { console.error("Usage: node scripts/set-password.mjs --email person@example.com [--password '...']"); process.exit(1); }
 
   const user = await prisma.user.findUnique({ where: { email }, select: { id: true, email: true, isOwner: true } });
-  if (!user) { console.error(`No account with that email. Existing accounts:`); 
+  if (!user) { console.error(`No account with that email. Existing accounts:`);
     const all = await prisma.user.findMany({ select: { email: true, isOwner: true } });
     all.forEach(u => console.error(`  ${u.email}${u.isOwner ? "  (owner)" : ""}`));
     process.exit(1);
@@ -40,7 +51,6 @@ try {
 
   await prisma.user.update({
     where: { id: user.id },
-    // Set from the console, so there is no admin holding a copy: no forced change is imposed.
     data: { passwordHash: await bcrypt.hash(password, 12), mustChangePassword: false, passwordUpdatedAt: new Date() },
   });
   console.log(`\nPassword updated for ${user.email}${user.isOwner ? " (owner)" : ""}`);
